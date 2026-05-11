@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   ShoppingBag, Beer, Coffee, Factory, Globe,
   TrendingUp, UserCheck, Zap, Trophy, BarChart3,
   ChevronRight, Coins, Users, RefreshCw, Coffee as CoffeeIcon,
-  X, AlertTriangle, Star
+  X, AlertTriangle, Star, Activity, Flag,
 } from "lucide-react";
 
 // ─── GAME DATA ────────────────────────────────────────────────────────────────
@@ -56,20 +56,130 @@ function boostsEarned(lifetime, rebirthCount) {
   return Math.max(1, Math.floor(lifetime / rebirthThreshold(rebirthCount)));
 }
 
+// ─── LEVEL MILESTONES (AdVenture-style quantity tiers) ───────────────────────
+// Hitting each tier on a business multiplies that business only (profit + speed).
+const LEVEL_MILESTONES = [25, 50, 100, 200, 300, 400, 500];
+
+function milestoneCount(level) {
+  return LEVEL_MILESTONES.filter((t) => level >= t).length;
+}
+
+function milestoneProfitMult(level) {
+  let m = 1;
+  LEVEL_MILESTONES.forEach((t) => {
+    if (level >= t) m *= 1.55;
+  });
+  return m;
+}
+
+function milestoneSpeedMult(level) {
+  let m = 1;
+  LEVEL_MILESTONES.forEach((t) => {
+    if (level >= t) m *= 1.18;
+  });
+  return m;
+}
+
+function nextMilestoneLevel(level) {
+  return LEVEL_MILESTONES.find((t) => level < t) ?? null;
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const fmt        = (n) => n.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
-// cafBoost multiplies profit: each boost = +100% profit
+// cafBoost multiplies profit: each boost = +100% profit (global “angel” analogue)
 const getProfit  = (def, bs, cafBoosts) =>
-  def.baseProfit * bs.level * (1 + cafBoosts);
-// Each level reduces duration by 12% (was 4%) — much more noticeable.
-// Caffeine boosts also speed things up: each boost = further 8% speed bonus, stacks multiplicatively.
+  def.baseProfit * bs.level * (1 + cafBoosts) * milestoneProfitMult(bs.level);
+// Each level reduces duration by 12%. Caffeine boosts add speed. Milestones add more.
 const getDur     = (def, bs, cafBoosts) => {
   const levelSpeedup  = 1 + (bs.level - 1) * 0.12;
   const boostSpeedup  = 1 + cafBoosts * 0.08;
-  return def.baseDuration / (levelSpeedup * boostSpeedup);
+  return def.baseDuration / (levelSpeedup * boostSpeedup * milestoneSpeedMult(bs.level));
 };
 const getUpgCost = (def, bs) => def.upgradeCostBase * Math.pow(1.45, bs.level);
+
+function singleUpgradeCost(def, level) {
+  return def.upgradeCostBase * Math.pow(1.45, level);
+}
+
+/** How many upgrades can be bought from startLevel with balance (sequential costs). */
+function countAffordFromBalance(balance, def, startLevel) {
+  let n = 0;
+  let bal = balance;
+  let L = startLevel;
+  while (bal >= singleUpgradeCost(def, L)) {
+    bal -= singleUpgradeCost(def, L);
+    n++;
+    L++;
+    if (n > 100_000) break;
+  }
+  return n;
+}
+
+function sumUpgradeCostN(def, startLevel, n) {
+  let sum = 0;
+  let L = startLevel;
+  for (let k = 0; k < n; k++) {
+    sum += singleUpgradeCost(def, L);
+    L++;
+  }
+  return sum;
+}
+
+// ─── SAVE / OFFLINE (Tier 1) ─────────────────────────────────────────────────
+const SAVE_KEY_V5 = "bishoptonEmpire_v5";
+const SAVE_KEY_V6 = "bishoptonEmpire_v6";
+const MAX_OFFLINE_MS = 48 * 60 * 60 * 1000;
+const MIN_OFFLINE_SIM_MS = 2000;
+const MAX_OFFLINE_CYCLES_PER_BUSINESS = 12_000_000;
+
+/**
+ * Credit completed manager cycles between lastSavedAt and now (capped).
+ * Mutates game.balance, game.lifetime, game.businesses[].runStartedAt, game.lastSavedAt.
+ */
+function applyOfflineDelta(game, nowMs) {
+  const lastSaved = typeof game.lastSavedAt === "number" ? game.lastSavedAt : nowMs;
+  let awayMs = nowMs - lastSaved;
+  if (awayMs < 0) awayMs = 0;
+  if (awayMs > MAX_OFFLINE_MS) awayMs = MAX_OFFLINE_MS;
+  const simEnd = lastSaved + awayMs;
+
+  let extraEarned = 0;
+
+  if (awayMs >= MIN_OFFLINE_SIM_MS) {
+    for (let i = 0; i < game.businesses.length; i++) {
+      const bs = game.businesses[i];
+      const def = BUSINESSES[i];
+      if (!bs.hasManager || !bs.running || bs.runStartedAt == null) continue;
+
+      let cycleStart = bs.runStartedAt;
+      const dur = getDur(def, bs, game.cafBoosts);
+      if (dur < 50) continue;
+
+      const profit = getProfit(def, bs, game.cafBoosts);
+      const span = simEnd - cycleStart;
+      if (span <= 0) {
+        bs.runStartedAt = cycleStart;
+        continue;
+      }
+
+      let nComplete = Math.floor(span / dur);
+      if (nComplete > MAX_OFFLINE_CYCLES_PER_BUSINESS) nComplete = MAX_OFFLINE_CYCLES_PER_BUSINESS;
+
+      if (nComplete > 0) {
+        const gain = profit * nComplete;
+        game.balance += gain;
+        game.lifetime += gain;
+        extraEarned += gain;
+        cycleStart += nComplete * dur;
+      }
+      bs.runStartedAt = cycleStart;
+    }
+  }
+
+  game.lastSavedAt = nowMs;
+  return { awayMs, extraEarned, simEnd };
+}
 const fmtTime    = (ms) => {
   if (ms <= 0) return "0.0s";
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
@@ -82,49 +192,137 @@ const fmtShort   = (n) => {
   return fmt(n);
 };
 
+/** Automated income only (managers running), £ per second */
+function computePoundsPerSecond(g) {
+  let pps = 0;
+  g.businesses.forEach((bs, i) => {
+    if (!bs.hasManager || !bs.running) return;
+    const def = BUSINESSES[i];
+    const dur = getDur(def, bs, g.cafBoosts);
+    if (dur <= 0) return;
+    pps += (getProfit(def, bs, g.cafBoosts) / dur) * 1000;
+  });
+  return pps;
+}
+
+function fmtPerSec(pps) {
+  if (!pps || pps < 0.005) return "£0.00/s";
+  if (pps < 1000) return `£${pps.toFixed(2)}/s`;
+  if (pps >= 1e9) return `${(pps / 1e9).toFixed(2)}bn/s`;
+  if (pps >= 1e6) return `${(pps / 1e6).toFixed(2)}m/s`;
+  if (pps >= 1e3) return `${(pps / 1e3).toFixed(2)}k/s`;
+  return `${fmt(pps)}/s`;
+}
+
 // ─── PERSISTENT GAME STATE ───────────────────────────────────────────────────
 
 function makeDefaultGame() {
+  const t = Date.now();
   return {
-    balance:      0,
-    lifetime:     0,
-    cafBoosts:    0,   // total caffeine boosts accumulated across all rebirths
-    rebirthCount: 0,
+    balance:       0,
+    lifetime:      0,
+    cafBoosts:     0,
+    rebirthCount:  0,
+    lastSavedAt:   t,
+    bulkBuy:       1,
     businesses: BUSINESSES.map(b => ({
       id: b.id, level: 1, hasManager: false,
-      running: false, startTime: null, readyToCollect: false,
+      running: false, runStartedAt: null, readyToCollect: false,
     })),
   };
 }
 
+function migrateBusinessFromSaveV5(row, id) {
+  return {
+    id,
+    level:      row?.level ?? 1,
+    hasManager: row?.hasManager ?? false,
+    running: false,
+    runStartedAt: null,
+    readyToCollect: false,
+  };
+}
+
+/** @returns {{ game: object, offline: { awayMs: number, extraEarned: number } }} */
 function loadGame() {
+  const now = Date.now();
+  let game;
+  let fromV5 = false;
+
   try {
-    const raw = localStorage.getItem("bishoptonEmpire_v5");
-    if (!raw) return makeDefaultGame();
-    const p = JSON.parse(raw);
-    return {
-      balance:      p.balance      ?? 0,
-      lifetime:     p.lifetime     ?? 0,
-      cafBoosts:    p.cafBoosts    ?? 0,
-      rebirthCount: p.rebirthCount ?? 0,
-      businesses: BUSINESSES.map((b, i) => ({
-        id: b.id,
-        level:      p.businesses?.[i]?.level      ?? 1,
-        hasManager: p.businesses?.[i]?.hasManager ?? false,
-        running: false, startTime: null, readyToCollect: false,
-      })),
-    };
-  } catch { return makeDefaultGame(); }
+    const raw6 = localStorage.getItem(SAVE_KEY_V6);
+    if (raw6) {
+      const p = JSON.parse(raw6);
+      game = {
+        balance:      p.balance ?? 0,
+        lifetime:     p.lifetime ?? 0,
+        cafBoosts:    p.cafBoosts ?? 0,
+        rebirthCount: p.rebirthCount ?? 0,
+        lastSavedAt:  typeof p.lastSavedAt === "number" ? p.lastSavedAt : now,
+        bulkBuy:
+          p.bulkBuy === 10 || p.bulkBuy === 100 || p.bulkBuy === "max" ? p.bulkBuy : 1,
+        businesses: BUSINESSES.map((b, i) => {
+          const s = p.businesses?.[i];
+          return {
+            id: b.id,
+            level:      s?.level ?? 1,
+            hasManager: s?.hasManager ?? false,
+            running:       !!s?.running,
+            readyToCollect: !!s?.readyToCollect,
+            runStartedAt: typeof s?.runStartedAt === "number" ? s.runStartedAt : null,
+          };
+        }),
+      };
+    } else {
+      const raw5 = localStorage.getItem(SAVE_KEY_V5);
+      if (raw5) {
+        fromV5 = true;
+        const p = JSON.parse(raw5);
+        game = {
+          balance:      p.balance ?? 0,
+          lifetime:     p.lifetime ?? 0,
+          cafBoosts:    p.cafBoosts ?? 0,
+          rebirthCount: p.rebirthCount ?? 0,
+          lastSavedAt:  now,
+          bulkBuy:      1,
+          businesses: BUSINESSES.map((b, i) =>
+            migrateBusinessFromSaveV5(p.businesses?.[i] ?? {}, b.id)
+          ),
+        };
+      } else {
+        game = makeDefaultGame();
+      }
+    }
+  } catch {
+    game = makeDefaultGame();
+  }
+
+  const offline = applyOfflineDelta(game, now);
+  if (fromV5) saveGame(game);
+
+  return { game, offline };
 }
 
 function saveGame(g) {
   try {
-    localStorage.setItem("bishoptonEmpire_v5", JSON.stringify({
+    const t = Date.now();
+    g.lastSavedAt = t;
+    localStorage.setItem(SAVE_KEY_V6, JSON.stringify({
+      saveVersion: 6,
+      lastSavedAt: t,
+      bulkBuy: g.bulkBuy ?? 1,
       balance:      g.balance,
       lifetime:     g.lifetime,
       cafBoosts:    g.cafBoosts,
       rebirthCount: g.rebirthCount,
-      businesses: g.businesses.map(b => ({ id: b.id, level: b.level, hasManager: b.hasManager })),
+      businesses: g.businesses.map(b => ({
+        id: b.id,
+        level: b.level,
+        hasManager: b.hasManager,
+        running: !!b.running,
+        readyToCollect: !!b.readyToCollect,
+        runStartedAt: typeof b.runStartedAt === "number" ? b.runStartedAt : null,
+      })),
     }));
   } catch {}
 }
@@ -138,6 +336,8 @@ function RebirthModal({ game, onConfirm, onCancel }) {
   const newTotal  = game.cafBoosts + earned;
   const threshold = rebirthThreshold(game.rebirthCount);
   const canRebirth= game.lifetime >= threshold;
+  const optimalReset =
+    canRebirth && game.cafBoosts > 0 && earned >= game.cafBoosts;
 
   return (
     <div style={{
@@ -180,9 +380,19 @@ function RebirthModal({ game, onConfirm, onCancel }) {
             Caffeine Rebirth
           </div>
           <div style={{ fontSize: 11, color: "#4a6a44", marginTop: 4 }}>
-            Reset your empire for a permanent boost
+            Idle reset: wipe this run for permanent boosts (like angel investors — stack them forever)
           </div>
         </div>
+
+        {optimalReset && (
+          <div style={{
+            background: "rgba(92,184,92,.12)", border: "1px solid #3a7030",
+            borderRadius: 10, padding: "10px 12px", marginBottom: 14,
+            fontSize: 11, color: "#a8d8a0", lineHeight: 1.45, fontWeight: 600,
+          }}>
+            <strong style={{ color: "#8fdd9f" }}>Strong time to reset:</strong> boosts from this run ({earned}) are at least your current total ({game.cafBoosts}). Your next run will feel much faster.
+          </div>
+        )}
 
         {/* Can't rebirth yet */}
         {!canRebirth && (
@@ -231,9 +441,12 @@ function RebirthModal({ game, onConfirm, onCancel }) {
             Total after rebirth: <span style={{ color: "#d4a843", fontWeight: 700 }}>{newTotal} ☕</span>
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "#4a7a40", lineHeight: 1.5 }}>
-            Each boost gives:<br />
+            Each boost stacks forever (global multiplier):<br />
             • <strong style={{ color: "#8fdd9f" }}>×{(1 + newTotal).toFixed(0)} profit</strong> on every business<br />
-            • <strong style={{ color: "#8fdd9f" }}>+{(newTotal * 8).toFixed(0)}% speed</strong> on every run
+            • <strong style={{ color: "#8fdd9f" }}>+{(newTotal * 8).toFixed(0)}% speed</strong> on every run<br />
+            <span style={{ color: "#5a7050", fontSize: 10 }}>
+              Tip: keep buying managers so money keeps ticking while you are away; milestones (25, 50, 100…) on each business add huge per-business spikes.
+            </span>
           </div>
         </div>
 
@@ -288,13 +501,21 @@ function RebirthModal({ game, onConfirm, onCancel }) {
 
 // ─── BUSINESS ROW ─────────────────────────────────────────────────────────────
 
-function BusinessRow({ def, bsSnap, balance, cafBoosts, barRef, btnRef, timerRef, onAction, onUpgrade, onHireManager }) {
+function BusinessRow({ def, bsSnap, balance, cafBoosts, bulkBuy, barRef, btnRef, timerRef, onAction, onUpgrade, onHireManager }) {
   const { Icon, color, darkColor } = def;
-  const upgCost = getUpgCost(def, bsSnap);
-  const canUpg  = balance >= upgCost;
+  const maxN   = countAffordFromBalance(balance, def, bsSnap.level);
+  const nBuy   = bulkBuy === "max" ? maxN : Math.min(bulkBuy, maxN);
+  const totalCost = nBuy > 0 ? sumUpgradeCostN(def, bsSnap.level, nBuy) : getUpgCost(def, bsSnap);
+  const canUpg = nBuy > 0 && balance >= totalCost;
   const canHire = balance >= def.managerCost;
   const dur     = getDur(def, bsSnap, cafBoosts);
   const profit  = getProfit(def, bsSnap, cafBoosts);
+  const mc      = milestoneCount(bsSnap.level);
+  const nextLv  = nextMilestoneLevel(bsSnap.level);
+  const mProf     = milestoneProfitMult(bsSnap.level);
+  const mSpd      = milestoneSpeedMult(bsSnap.level);
+  const bizPps    = bsSnap.hasManager && bsSnap.running ? (profit / dur) * 1000 : 0;
+  const upgradeSafe = balance > 0 && totalCost <= balance * 0.01 && nBuy === 1;
 
   return (
     <div style={{
@@ -347,6 +568,16 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, barRef, btnRef, timerRef
               borderRadius: 999, padding: "1px 6px",
               fontSize: 9, fontWeight: 700, color, fontFamily: "monospace",
             }}>LVL {bsSnap.level}</span>
+            {mc > 0 && (
+              <span style={{
+                background: "rgba(143,221,159,.12)", border: "1px solid #3a6040",
+                borderRadius: 999, padding: "1px 6px",
+                fontSize: 9, fontWeight: 700, color: "#8fdd9f",
+                display: "flex", alignItems: "center", gap: 3,
+              }}>
+                <Flag size={8} color="#8fdd9f" /> {mc}× tiers
+              </span>
+            )}
             {bsSnap.hasManager && (
               <span style={{
                 background: "rgba(212,168,67,.15)", border: "1px solid #a07c2a",
@@ -398,14 +629,36 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, barRef, btnRef, timerRef
             </div>
           </div>
 
-          {/* Profit + timer */}
+          {/* Profit + timer + milestones */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
             <span style={{ fontSize: 10, color: "#6aab7a", fontFamily: "monospace", fontWeight: 600 }}>
               {fmt(profit)}/run
+              {bizPps > 0 && (
+                <span style={{ color: "#d4a843", marginLeft: 6 }}>({fmtPerSec(bizPps)} auto)</span>
+              )}
             </span>
             <span ref={timerRef} style={{ fontSize: 10, fontFamily: "monospace", color: "#6a7a66" }}>
               {fmtTime(dur)}
             </span>
+          </div>
+          <div style={{
+            marginTop: 5, fontSize: 8, color: "#4a5a46", lineHeight: 1.35,
+            display: "flex", flexWrap: "wrap", gap: "4px 8px", alignItems: "center",
+          }}>
+            <span>
+              Milestones: <strong style={{ color: "#7aab80" }}>×{mProf.toFixed(2)}</strong> profit ·{" "}
+              <strong style={{ color: "#7aab80" }}>×{mSpd.toFixed(2)}</strong> speed (this business)
+            </span>
+            {nextLv != null ? (
+              <span style={{ color: "#6a6048" }}>
+                Next spike at <strong style={{ color: "#d4a843" }}>Lv {nextLv}</strong>
+              </span>
+            ) : (
+              <span style={{ color: "#5cb85c", fontWeight: 700 }}>All milestones cleared</span>
+            )}
+            {upgradeSafe && canUpg && (
+              <span style={{ color: "#3a5a40", fontStyle: "italic" }}>Cheap upgrade (&lt;1% cash)</span>
+            )}
           </div>
         </div>
 
@@ -427,7 +680,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, barRef, btnRef, timerRef
               <span style={{ fontSize: 8, fontWeight: 800, color: "#8fdd9f", textTransform: "uppercase", letterSpacing: ".05em" }}>Upgrade</span>
             </div>
             <span style={{ fontSize: 9, fontFamily: "monospace", color: canUpg ? "#c0e0b8" : "#3a4e36", fontWeight: 600 }}>
-              {fmt(upgCost)}
+              {nBuy > 1 ? `${fmt(totalCost)} · ×${nBuy}` : fmt(totalCost)}
             </span>
           </button>
 
@@ -497,8 +750,16 @@ function FloatLabels({ labels }) {
 
 // ─── APP ─────────────────────────────────────────────────────────────────────
 
+let __initialLoad = null;
+function getInitialLoad() {
+  if (__initialLoad == null) __initialLoad = loadGame();
+  return __initialLoad;
+}
+
 export default function App() {
-  const gameRef = useRef(loadGame());
+  const il = getInitialLoad();
+  const gameRef = useRef(il.game);
+  const offlineBootRef = useRef(il.offline);
 
   const [uiSnap,       setUiSnap]       = useState(() => snap(gameRef.current));
   const [toast,        setToast]        = useState(null);
@@ -507,7 +768,7 @@ export default function App() {
 
   const toastTimer  = useRef(null);
   const rafRef      = useRef(null);
-  const lastSaveRef = useRef(0);
+  const lastSaveRef = useRef(Date.now());
   const pendingUI   = useRef(false);
 
   // DOM refs
@@ -521,6 +782,7 @@ export default function App() {
       lifetime:     g.lifetime,
       cafBoosts:    g.cafBoosts,
       rebirthCount: g.rebirthCount,
+      bulkBuy:      g.bulkBuy ?? 1,
       businesses:   g.businesses.map(b => ({ ...b })),
     };
   }
@@ -539,6 +801,16 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
+
+  useEffect(() => {
+    const o = offlineBootRef.current;
+    if (o.extraEarned > 0 && o.awayMs >= MIN_OFFLINE_SIM_MS) {
+      const h = Math.floor(o.awayMs / 3600000);
+      const m = Math.floor((o.awayMs % 3600000) / 60000);
+      const timeBit = h > 0 ? `${h}h ${m}m` : `${Math.max(1, m)}m`;
+      showToast(`Back after ~${timeBit}: your managers banked ${fmt(o.extraEarned)} while you were away.`);
+    }
+  }, [showToast]);
 
   const spawnFloat = useCallback((e, text) => {
     const id = _floatId++;
@@ -594,7 +866,8 @@ export default function App() {
 
   // ── GAME LOOP ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const loop = (now) => {
+    const loop = () => {
+      const now = Date.now();
       const g = gameRef.current;
       let uiChanged = false;
 
@@ -604,8 +877,12 @@ export default function App() {
           paintBar(i, bs.readyToCollect ? 1 : 0, bs.readyToCollect);
           return;
         }
+        if (bs.runStartedAt == null) {
+          bs.runStartedAt = now;
+          return;
+        }
         const dur      = getDur(def, bs, g.cafBoosts);
-        const elapsed  = now - bs.startTime;
+        const elapsed  = now - bs.runStartedAt;
         const progress = Math.min(1, elapsed / dur);
 
         paintBar(i, progress, false);
@@ -615,12 +892,13 @@ export default function App() {
           if (bs.hasManager) {
             g.balance  += getProfit(def, bs, g.cafBoosts);
             g.lifetime += getProfit(def, bs, g.cafBoosts);
-            bs.startTime = now;
+            bs.runStartedAt = now;
             paintBar(i, 0, false);
             uiChanged = true;
           } else {
             bs.running        = false;
             bs.readyToCollect = true;
+            bs.runStartedAt    = null;
             paintBar(i, 1, true);
             paintTimer(i, 0, true);
             paintBtn(i, bs);
@@ -643,14 +921,38 @@ export default function App() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [paintBar, paintTimer, paintBtn, scheduleUI]);
 
-  // Auto-start managed on mount
+  // Auto-start managed on mount (do not clobber saved run timing)
   useEffect(() => {
-    const now = performance.now();
+    const now = Date.now();
     gameRef.current.businesses.forEach(bs => {
-      if (bs.hasManager) { bs.running = true; bs.startTime = now; }
+      if (!bs.hasManager || bs.readyToCollect) return;
+      if (!bs.running) {
+        bs.running = true;
+        bs.runStartedAt = now;
+      } else if (bs.runStartedAt == null) {
+        bs.runStartedAt = now;
+      }
     });
     scheduleUI();
   }, [scheduleUI]);
+
+  // Heartbeat + flush save when tab hides / closes
+  useEffect(() => {
+    const flush = () => saveGame(gameRef.current);
+    const hb = window.setInterval(flush, 30000);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.clearInterval(hb);
+      window.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, []);
 
   // ── ACTIONS ───────────────────────────────────────────────────────────────
   const handleAction = useCallback((id, e) => {
@@ -665,14 +967,15 @@ export default function App() {
       g.lifetime    += profit;
       bs.readyToCollect = false;
       bs.running        = false;
+      bs.runStartedAt    = null;
       spawnFloat(e, fmt(profit));
       paintBar(i, 0, false);
       paintTimer(i, getDur(def, bs, g.cafBoosts), false);
       paintBtn(i, bs);
       scheduleUI();
     } else if (!bs.running) {
-      bs.running   = true;
-      bs.startTime = performance.now();
+      bs.running       = true;
+      bs.runStartedAt  = Date.now();
       paintBtn(i, bs);
       scheduleUI();
     }
@@ -683,13 +986,32 @@ export default function App() {
     const i   = BUSINESSES.findIndex(d => d.id === id);
     const bs  = g.businesses[i];
     const def = BUSINESSES[i];
-    const cost= getUpgCost(def, bs);
-    if (g.balance < cost) return;
-    g.balance -= cost;
-    bs.level++;
-    showToast(`⬆ ${def.shortName} → Level ${bs.level}! Runs ${(getDur(def, bs, g.cafBoosts) / 1000).toFixed(1)}s`);
+    const mode = g.bulkBuy ?? 1;
+    const maxN = countAffordFromBalance(g.balance, def, bs.level);
+    const n    = mode === "max" ? maxN : Math.min(mode, maxN);
+    if (n < 1) return;
+
+    const prevLevel = bs.level;
+    const prevM     = milestoneCount(prevLevel);
+    const costSum   = sumUpgradeCostN(def, bs.level, n);
+    g.balance -= costSum;
+    bs.level  += n;
+    const newM = milestoneCount(bs.level);
+    if (newM > prevM) {
+      showToast(`Milestone! ${def.shortName} — huge profit & speed spike on this business`);
+    } else if (n > 1) {
+      showToast(`⬆ ${def.shortName} +${n} levels → Lv ${bs.level}`);
+    } else {
+      showToast(`⬆ ${def.shortName} → Level ${bs.level}! Runs ${(getDur(def, bs, g.cafBoosts) / 1000).toFixed(1)}s`);
+    }
     scheduleUI();
   }, [showToast, scheduleUI]);
+
+  const setBulkBuy = useCallback((v) => {
+    gameRef.current.bulkBuy = v;
+    saveGame(gameRef.current);
+    scheduleUI();
+  }, [scheduleUI]);
 
   const handleHireManager = useCallback((id) => {
     const g   = gameRef.current;
@@ -701,7 +1023,7 @@ export default function App() {
     g.balance    -= def.managerCost;
     bs.hasManager = true;
     bs.running    = true;
-    bs.startTime  = performance.now();
+    bs.runStartedAt = Date.now();
     paintBtn(i, bs);
     showToast(`🤵 ${def.managerName} is now on shift!`);
     scheduleUI();
@@ -721,7 +1043,7 @@ export default function App() {
     g.lifetime = 0;
     g.businesses = BUSINESSES.map(b => ({
       id: b.id, level: 1, hasManager: false,
-      running: false, startTime: null, readyToCollect: false,
+      running: false, runStartedAt: null, readyToCollect: false,
     }));
 
     // Reset all bar DOMs
@@ -747,6 +1069,12 @@ export default function App() {
   const rebirthProg    = Math.min(1, uiSnap.lifetime / threshold);
   const wouldEarn      = boostsEarned(uiSnap.lifetime, uiSnap.rebirthCount);
   const canRebirthNow  = uiSnap.lifetime >= threshold;
+  const optimalRebirth = canRebirthNow && uiSnap.cafBoosts > 0 && wouldEarn >= uiSnap.cafBoosts;
+
+  const idlePps = useMemo(
+    () => computePoundsPerSecond({ businesses: bizSnaps, cafBoosts: uiSnap.cafBoosts }),
+    [bizSnaps, uiSnap.cafBoosts]
+  );
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -808,6 +1136,17 @@ export default function App() {
                 }}>
                   {fmt(uiSnap.balance)}
                 </div>
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5,
+                  marginTop: 4, fontSize: 11, fontFamily: "'DM Mono',monospace",
+                  color: "#6aab7a", fontWeight: 600,
+                }}>
+                  <Activity size={12} color="#5cb85c" />
+                  <span>{fmtPerSec(idlePps)}</span>
+                  <span style={{ fontSize: 8, color: "#3a5a40", fontWeight: 700, textTransform: "uppercase" }}>
+                    auto
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -853,6 +1192,37 @@ export default function App() {
                 <span style={{ fontSize:11, fontFamily:"monospace", color:"#b0d0a8", fontWeight:600 }}>{value}</span>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* ── UPGRADE BULK (Tier 1) ── */}
+        <div style={{ maxWidth:640, margin:"8px auto 0", padding:"0 12px" }}>
+          <div style={{
+            display:"flex", flexWrap:"wrap", alignItems:"center", gap:8,
+            background:"#0f180d", border:"1px solid #1e2e1a",
+            borderRadius:10, padding:"8px 10px",
+          }}>
+            <span style={{ fontSize:9, color:"#5a7050", fontWeight:800, textTransform:"uppercase", letterSpacing:".08em" }}>
+              Buy upgrades
+            </span>
+            {[1, 10, 100, "max"].map((m) => (
+              <button
+                key={String(m)}
+                type="button"
+                onClick={() => setBulkBuy(m)}
+                style={{
+                  padding:"4px 10px", borderRadius:8, fontSize:11, fontWeight:800, fontFamily:"inherit", cursor:"pointer",
+                  border:`2px solid ${uiSnap.bulkBuy === m ? "#5cb85c" : "#1e2e1a"}`,
+                  background: uiSnap.bulkBuy === m ? "linear-gradient(135deg,#2a4028,#3a5c34)" : "#141c12",
+                  color: uiSnap.bulkBuy === m ? "#e8fcc8" : "#5a7050",
+                }}
+              >
+                {m === "max" ? "Max" : `×${m}`}
+              </button>
+            ))}
+            <span style={{ fontSize:8, color:"#3a4a36", marginLeft:"auto", maxWidth:200, textAlign:"right" }}>
+              Each row uses this for its Upgrade button.
+            </span>
           </div>
         </div>
 
@@ -905,6 +1275,11 @@ export default function App() {
                     <span style={{ color:"#8fdd9f", fontWeight:700 }}> · +{wouldEarn} boost{wouldEarn !== 1 ? "s" : ""} ready!</span>
                   )}
                 </div>
+                {optimalRebirth && (
+                  <div style={{ fontSize: 10, color: "#8fdd9f", fontWeight: 700, marginTop: 6 }}>
+                    Strong reset window: boosts from this run ≥ your banked boosts — rebirth for a big jump.
+                  </div>
+                )}
               </div>
 
               <button
@@ -941,9 +1316,13 @@ export default function App() {
             <span style={{ fontSize:10, fontWeight:900, color:"#5cb85c", textTransform:"uppercase", letterSpacing:".12em" }}>
               Bishopton Businesses
             </span>
-            {uiSnap.cafBoosts > 0 && (
-              <span style={{ fontSize:10, color:"#d4a843", fontWeight:700, marginLeft:"auto" }}>
-                ☕ ×{1 + uiSnap.cafBoosts} profit · +{uiSnap.cafBoosts * 8}% speed
+            {uiSnap.cafBoosts > 0 ? (
+              <span style={{ fontSize:10, color:"#d4a843", fontWeight:700, marginLeft:"auto", textAlign: "right" }}>
+                ☕ ×{1 + uiSnap.cafBoosts} profit · +{uiSnap.cafBoosts * 8}% speed · milestones at 25/50/100…
+              </span>
+            ) : (
+              <span style={{ fontSize:9, color:"#4a5a46", fontWeight:600, marginLeft:"auto", textAlign: "right" }}>
+                Level milestones 25 → 500 spike speed & profit
               </span>
             )}
           </div>
@@ -955,6 +1334,7 @@ export default function App() {
               bsSnap={bizSnaps[i]}
               balance={uiSnap.balance}
               cafBoosts={uiSnap.cafBoosts}
+              bulkBuy={uiSnap.bulkBuy}
               barRef={barRefs.current[i]}
               btnRef={btnRefs.current[i]}
               timerRef={timerRefs.current[i]}
@@ -965,7 +1345,7 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{ textAlign:"center", marginTop:16, fontSize:9, color:"#1e2e1a", letterSpacing:".1em" }}>
+        <div style={{ textAlign:"center", marginTop:16, fontSize:9, color:"#3a4a36", letterSpacing:".1em" }}>
           BISHOPTON · COUNTY DURHAM · AUTO-SAVES EVERY 5 SECONDS
         </div>
       </div>
