@@ -31,7 +31,7 @@ class ErrorBoundary extends Component {
             whiteSpace: "pre-wrap",
           },
         },
-        createElement("h1", { style: { fontSize: 18, margin: "0 0 12px" } }, "Something went wrong"),
+        createElement("h1", { style: { fontSize: 18, margin: "0 0 12px" } }, "Application error"),
         createElement("p", { style: { margin: 0 } }, String(err)),
         createElement("pre", { style: { fontSize: 12, color: "#ccc", marginTop: 16 } }, err?.stack ?? "")
       );

@@ -1,0 +1,10 @@
+{
+  "name": "Bishopton Operations Console — Data Module",
+  "short_name": "Bishopton DAC",
+  "description": "Structured utility for operational metrics, quantitative visualization, and serialized workspace parameters.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0d120b",
+  "theme_color": "#0d120b",
+  "lang": "en-GB"
+}

@@ -5,7 +5,7 @@ import {
   ChevronRight, Coins, Users, RefreshCw,
   X, AlertTriangle, Star, Activity, Flag,
   Lock,
-  PenLine, CreditCard, Milk, Gamepad2, Clock, Tv, Cookie, Wifi, Car, Smartphone, Building, Map, Sun, BookOpen,
+  PenLine, CreditCard, Milk, LayoutGrid, Clock, Tv, Cookie, Wifi, Car, Smartphone, Building, Map, Sun, BookOpen,
   Film, Calculator, Gift, Plane, Heart, ShoppingBag, Crown,
 } from "lucide-react";
 
@@ -150,7 +150,7 @@ const UPGRADES = [
   { id: "fw3", name: "Loyalty Cards", description: "Buy 9, get 1 free. Nobody tracks it.", cost: 800, icon: CreditCard, type: "speed", target: "pavement", multiplier: 1.3, requiresLevel: 10 },
   { id: "fw4", name: "Oat Milk Arrives", description: "Costs a fortune. Triples the queue.", cost: 3000, icon: Milk, type: "profit", target: "pavement", multiplier: 3, requiresLevel: 10 },
   { id: "fw5", name: "Flat White's Goes Viral", description: "TikTok. Nobody knows how.", cost: 15000, icon: Zap, type: "profit", target: "pavement", multiplier: 5, requiresLevel: 25 },
-  { id: "bb1", name: "Quiz Machine", description: "Felix rigs it. The locals don't notice.", cost: 150, icon: Gamepad2, type: "profit", target: "brewbar", multiplier: 2, requiresLevel: null },
+  { id: "bb1", name: "Quiz Machine", description: "Felix rigs it. The locals don't notice.", cost: 150, icon: LayoutGrid, type: "profit", target: "brewbar", multiplier: 2, requiresLevel: null },
   { id: "bb2", name: "Happy Hour", description: "3-5pm. Somehow makes more money.", cost: 600, icon: Clock, type: "speed", target: "brewbar", multiplier: 1.4, requiresLevel: 5 },
   { id: "bb3", name: "Sports Screen", description: "Massive telly. Bolted to the wall.", cost: 2500, icon: Tv, type: "profit", target: "brewbar", multiplier: 2.5, requiresLevel: 10 },
   { id: "bb4", name: "Craft Beer Range", description: "Local brewery. Costs twice as much.", cost: 10000, icon: Beer, type: "profit", target: "brewbar", multiplier: 3, requiresLevel: 25 },
@@ -605,10 +605,10 @@ function RebirthModal({ game, onConfirm, onCancel }) {
             <RefreshCw size={28} color="#8fdd9f" />
           </div>
           <div style={{ fontWeight: 900, fontSize: 20, color: "#e8dcc8" }}>
-            Caffeine Rebirth
+            Workspace reset (caffeine index)
           </div>
           <div style={{ fontSize: 11, color: "#4a6a44", marginTop: 4 }}>
-            Idle reset: wipe this run for permanent boosts (like angel investors — stack them forever)
+            Archive this session for permanent throughput multipliers (stacking parameters across runs)
           </div>
         </div>
 
@@ -618,7 +618,7 @@ function RebirthModal({ game, onConfirm, onCancel }) {
             borderRadius: 10, padding: "10px 12px", marginBottom: 14,
             fontSize: 11, color: "#a8d8a0", lineHeight: 1.45, fontWeight: 600,
           }}>
-            <strong style={{ color: "#8fdd9f" }}>Strong time to reset:</strong> boosts from this run ({earned}) are at least your current total ({game.cafBoosts}). Your next run will feel much faster.
+            <strong style={{ color: "#8fdd9f" }}>Favourable reset window:</strong> multipliers from this session ({earned}) meet or exceed your current index ({game.cafBoosts}). The next workspace will initialise with higher throughput.
           </div>
         )}
 
@@ -631,10 +631,10 @@ function RebirthModal({ game, onConfirm, onCancel }) {
           }}>
             <AlertTriangle size={16} color="#e07060" style={{ flexShrink: 0, marginTop: 1 }} />
             <div>
-              <div style={{ fontSize: 12, color: "#e07060", fontWeight: 700 }}>Not enough lifetime earnings</div>
+              <div style={{ fontSize: 12, color: "#e07060", fontWeight: 700 }}>Insufficient cumulative revenue</div>
               <div style={{ fontSize: 11, color: "#7a4030", marginTop: 3 }}>
-                You need {fmtShort(threshold)} lifetime to rebirth.<br />
-                You have {fmtShort(game.lifetime)} so far.
+                You need {fmtShort(threshold)} cumulative revenue to execute a reset.<br />
+                You have {fmtShort(game.lifetime)} recorded so far.
               </div>
               <div style={{ marginTop: 8, height: 6, background: "#1a0a08", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{
@@ -666,14 +666,14 @@ function RebirthModal({ game, onConfirm, onCancel }) {
             </span>
           </div>
           <div style={{ fontSize: 11, color: "#5a8050" }}>
-            Total after rebirth: <span style={{ color: "#d4a843", fontWeight: 700 }}>{newTotal} ☕</span>
+            Total after reset: <span style={{ color: "#d4a843", fontWeight: 700 }}>{newTotal} ☕</span>
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "#4a7a40", lineHeight: 1.5 }}>
             Each boost stacks forever (global multiplier):<br />
             • <strong style={{ color: "#8fdd9f" }}>×{(1 + newTotal).toFixed(0)} profit</strong> on every business<br />
             • <strong style={{ color: "#8fdd9f" }}>+{(newTotal * 8).toFixed(0)}% speed</strong> on every run<br />
             <span style={{ color: "#5a7050", fontSize: 10 }}>
-              Tip: keep buying managers so money keeps ticking while you are away; milestones (10, 25, 50…) on each business add huge per-business spikes.
+              Tip: retain automated supervisors so revenue accrues offline; tier thresholds (10, 25, 50…) on each unit yield large per-unit throughput adjustments.
             </span>
           </div>
         </div>
@@ -688,7 +688,7 @@ function RebirthModal({ game, onConfirm, onCancel }) {
           </div>
           <div style={{ fontSize: 11, color: "#6a3a30", lineHeight: 1.6 }}>
             • All money ({fmt(game.balance)})<br />
-            • All business levels<br />
+            • All unit reference indices<br />
             • All managers
           </div>
         </div>
@@ -719,7 +719,7 @@ function RebirthModal({ game, onConfirm, onCancel }) {
               boxShadow: canRebirth ? "0 0 16px rgba(92,184,92,.3)" : "none",
             }}
           >
-            ☕ Rebirth Now
+            ☕ Execute reset
           </button>
         </div>
       </div>
@@ -901,6 +901,7 @@ function CupMinigame({ lastCupPlayedAt, superboost, onSessionEnd }) {
             type="button"
             disabled={cupGreyCooldown}
             onClick={onCupClick}
+            aria-label="Sampling control: initialise or append measurement to the throughput calibration module"
             style={{
               background: "transparent", border: "none", padding: 0, cursor: cupGreyCooldown ? "not-allowed" : "pointer",
               display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
@@ -979,7 +980,7 @@ function CupMinigame({ lastCupPlayedAt, superboost, onSessionEnd }) {
             )}
           </button>
           {cupIdleReady && (
-            <span style={{ fontSize: 9, fontWeight: 800, color: "#d4a843", letterSpacing: ".06em" }}>Click me!</span>
+            <span style={{ fontSize: 9, fontWeight: 800, color: "#d4a843", letterSpacing: ".06em" }}>Initialise</span>
           )}
           {cupGreyCooldown && (
             <span style={{ fontSize: 8, fontWeight: 700, color: "#6a7066", textAlign: "center", lineHeight: 1.25, maxWidth: 120 }}>
@@ -1132,7 +1133,7 @@ function ShopPanel({ isOpen, onClose, purchasedUpgrades, balance, businesses, on
                           fontFamily: "inherit",
                         }}
                       >
-                        Buy
+                        Procure
                       </button>
                     )}
                   </div>
@@ -1201,7 +1202,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
             textAlign: "center", lineHeight: 1.2, padding: "0 4px",
             pointerEvents: "none",
           }}>
-            {bsSnap.readyToCollect ? "Collect!" : bsSnap.running ? "Running" : "Start"}
+            {bsSnap.readyToCollect ? "Load output" : bsSnap.running ? "Executing" : "Initialize"}
           </span>
         </button>
 
@@ -1214,7 +1215,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
               background: `${color}28`, border: `1px solid ${color}70`,
               borderRadius: 999, padding: "1px 6px",
               fontSize: 9, fontWeight: 700, color, fontFamily: "monospace",
-            }}>LVL {bsSnap.level}</span>
+            }}>REF {bsSnap.level}</span>
             {mc > 0 && (
               <span style={{
                 background: "rgba(143,221,159,.12)", border: "1px solid #3a6040",
@@ -1276,7 +1277,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
             </div>
           </div>
 
-          {/* Profit + timer + milestones */}
+          {/* Profit + timer + tier thresholds */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
             <span style={{ fontSize: 10, color: "#6aab7a", fontFamily: "monospace", fontWeight: 600 }}>
               {fmt(profit)}/run
@@ -1293,15 +1294,15 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
             display: "flex", flexWrap: "wrap", gap: "4px 8px", alignItems: "center",
           }}>
             <span>
-              Milestones: <strong style={{ color: "#7aab80" }}>×{mProf.toFixed(2)}</strong> profit ·{" "}
-              <strong style={{ color: "#7aab80" }}>×{mSpd.toFixed(2)}</strong> speed (this business)
+              Tier bands: <strong style={{ color: "#7aab80" }}>×{mProf.toFixed(2)}</strong> profit ·{" "}
+              <strong style={{ color: "#7aab80" }}>×{mSpd.toFixed(2)}</strong> speed (this unit)
             </span>
             {nextLv != null ? (
               <span style={{ color: "#6a6048" }}>
-                Next spike at <strong style={{ color: "#d4a843" }}>Lv {nextLv}</strong>
+                Next threshold at <strong style={{ color: "#d4a843" }}>REF {nextLv}</strong>
               </span>
             ) : (
-              <span style={{ color: "#5cb85c", fontWeight: 700 }}>All milestones cleared</span>
+              <span style={{ color: "#5cb85c", fontWeight: 700 }}>All tier thresholds applied</span>
             )}
             {upgradeSafe && canUpg && (
               <span style={{ color: "#3a5a40", fontStyle: "italic" }}>Cheap upgrade (&lt;1% cash)</span>
@@ -1324,7 +1325,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
           >
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <TrendingUp size={10} color="#8fdd9f" />
-              <span style={{ fontSize: 8, fontWeight: 800, color: "#8fdd9f", textTransform: "uppercase", letterSpacing: ".05em" }}>Upgrade</span>
+              <span style={{ fontSize: 8, fontWeight: 800, color: "#8fdd9f", textTransform: "uppercase", letterSpacing: ".05em" }}>Increment</span>
             </div>
             <span style={{ fontSize: 9, fontFamily: "monospace", color: canUpg ? "#c0e0b8" : "#3a4e36", fontWeight: 600 }}>
               {nBuy > 1 ? `${fmt(totalCost)} · ×${nBuy}` : fmt(totalCost)}
@@ -1506,7 +1507,7 @@ export default function App() {
     const el = timerRefs.current[i]?.current;
     if (!el) return;
     if (isReady) {
-      el.textContent = "✓ Ready!";
+      el.textContent = "✓ Complete";
       el.style.color = "#ffd040";
       el.style.fontWeight = "700";
     } else {
@@ -1524,15 +1525,15 @@ export default function App() {
     if (bs.readyToCollect) {
       btn.style.background = "linear-gradient(135deg,#c07800,#f0a800)";
       btn.style.cursor     = "pointer";
-      if (label) label.textContent = "Collect!";
+      if (label) label.textContent = "Load output";
     } else if (bs.running) {
       btn.style.background = `linear-gradient(135deg,${def.darkColor},${def.color})`;
       btn.style.cursor     = "default";
-      if (label) label.textContent = "Running";
+      if (label) label.textContent = "Executing";
     } else {
       btn.style.background = `linear-gradient(135deg,${def.darkColor},${def.color})`;
       btn.style.cursor     = "pointer";
-      if (label) label.textContent = "Start";
+      if (label) label.textContent = "Initialize";
     }
   }, []);
 
@@ -1684,11 +1685,11 @@ export default function App() {
     bs.level  += n;
     const newM = milestoneCount(bs.level);
     if (newM > prevM) {
-      showToast(`Milestone! ${def.shortName} — huge profit & speed spike on this business`);
+      showToast(`Threshold event: ${def.shortName} — large profit and latency adjustment on this unit`);
     } else if (n > 1) {
-      showToast(`⬆ ${def.shortName} +${n} levels → Lv ${bs.level}`);
+      showToast(`⬆ ${def.shortName} +${n} indices → REF ${bs.level}`);
     } else {
-      showToast(`⬆ ${def.shortName} → Level ${bs.level}! Runs ${(getDur(def, bs, g.cafBoosts, pu) / 1000).toFixed(1)}s`);
+      showToast(`⬆ ${def.shortName} → REF ${bs.level}! Cycle ${(getDur(def, bs, g.cafBoosts, pu) / 1000).toFixed(1)}s`);
     }
     scheduleUI();
   }, [showToast, scheduleUI]);
@@ -1755,7 +1756,7 @@ export default function App() {
 
     saveGame(g);
     setShowRebirth(false);
-    showToast(`☕ Rebirthed! You now have ${g.cafBoosts} Caffeine Boost${g.cafBoosts !== 1 ? "s" : ""}! Everything is ×${1 + g.cafBoosts} faster and more profitable.`);
+    showToast(`☕ Workspace reset complete. Caffeine index now ${g.cafBoosts}. Global throughput ×${1 + g.cafBoosts} with higher yield.`);
     scheduleUI();
   }, [paintBar, paintTimer, paintBtn, showToast, scheduleUI]);
 
@@ -1814,6 +1815,7 @@ export default function App() {
         @media (max-width:600px){.shop-panel{width:100%;max-width:100vw;}}
       `}</style>
 
+      <main role="main" aria-label="Bishopton quantitative operations console: metrics, visualization, and serialized workspace parameters">
       <div style={{
         minHeight:"100vh", paddingBottom:32,
         background:"radial-gradient(ellipse at 30% 0%,rgba(74,124,89,.1) 0%,transparent 50%),radial-gradient(ellipse at 70% 100%,rgba(100,70,20,.08) 0%,transparent 50%),#0d120b",
@@ -1841,7 +1843,7 @@ export default function App() {
                 <div>
                   <div style={{ fontWeight:900, fontSize:15, color:"#e8dcc8", lineHeight:1.1 }}>Mr White's</div>
                   <div style={{ fontWeight:900, fontSize:11, color:"#5cb85c", letterSpacing:".15em", textTransform:"uppercase" }}>
-                    Bishopton Empire
+                    Bishopton Operations Console
                   </div>
                 </div>
               </div>
@@ -1896,11 +1898,11 @@ export default function App() {
               </div>
             </div>
 
-            {/* Domination bar */}
+            {/* Operational reach bar */}
             <div style={{ marginTop:10, display:"flex", alignItems:"center", gap:8 }}>
               <Trophy size={10} color="#d4a843" />
               <span style={{ fontSize:9, color:"#7a6020", fontWeight:700, textTransform:"uppercase", letterSpacing:".08em", flexShrink:0 }}>
-                Domination
+                Operational reach
               </span>
               <div style={{ flex:1, height:7, background:"#0a0f09", borderRadius:4, overflow:"hidden", border:"1px solid #1e2a1a" }}>
                 <div style={{
@@ -1928,7 +1930,7 @@ export default function App() {
               { icon:<UserCheck size={11} color="#d4a843"/>, label:"Managers",  value:`${managedCount}/${BUSINESSES.length}` },
               { icon:<TrendingUp size={11} color="#5cb85c"/>,label:"Upgrades",  value:totalUpgrades },
               { icon:<span style={{fontSize:11}}>☕</span>,  label:"Boosts",    value:uiSnap.cafBoosts },
-              { icon:<RefreshCw size={11} color="#9b59b6"/>, label:"Rebirths",  value:uiSnap.rebirthCount },
+              { icon:<RefreshCw size={11} color="#9b59b6"/>, label:"Resets",  value:uiSnap.rebirthCount },
             ].map(({ icon, label, value }) => (
               <div key={label} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:2 }}>
@@ -1949,7 +1951,7 @@ export default function App() {
             borderRadius:10, padding:"8px 10px",
           }}>
             <span style={{ fontSize:9, color:"#5a7050", fontWeight:800, textTransform:"uppercase", letterSpacing:".08em" }}>
-              Buy upgrades
+              Acquisition batch
             </span>
             {[1, 10, 100, "max"].map((m) => (
               <button
@@ -1988,7 +1990,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
                   <RefreshCw size={13} color={canRebirthNow ? "#8fdd9f" : "#3a5030"} />
                   <span style={{ fontSize:11, fontWeight:900, color: canRebirthNow ? "#c8e8c0" : "#3a5030", textTransform:"uppercase", letterSpacing:".08em" }}>
-                    Caffeine Rebirth
+                    Workspace reset (caffeine index)
                   </span>
                   {uiSnap.cafBoosts > 0 && (
                     <span style={{
@@ -2016,14 +2018,14 @@ export default function App() {
                 </div>
 
                 <div style={{ fontSize:10, color:"#4a6a44", fontFamily:"monospace" }}>
-                  {fmtShort(uiSnap.lifetime)} / {fmtShort(threshold)} lifetime
+                  {fmtShort(uiSnap.lifetime)} / {fmtShort(threshold)} cumulative
                   {canRebirthNow && (
-                    <span style={{ color:"#8fdd9f", fontWeight:700 }}> · +{wouldEarn} boost{wouldEarn !== 1 ? "s" : ""} ready!</span>
+                    <span style={{ color:"#8fdd9f", fontWeight:700 }}> · +{wouldEarn} index increment{wouldEarn !== 1 ? "s" : ""} available</span>
                   )}
                 </div>
                 {optimalRebirth && (
                   <div style={{ fontSize: 10, color: "#8fdd9f", fontWeight: 700, marginTop: 6 }}>
-                    Strong reset window: boosts from this run ≥ your banked boosts — rebirth for a big jump.
+                    Favourable reset window: this session’s index gain meets or exceeds your banked index — execute a reset for a large throughput gain.
                   </div>
                 )}
               </div>
@@ -2044,7 +2046,7 @@ export default function App() {
                   flexShrink: 0,
                 }}
               >
-                ☕ Rebirth
+                ☕ Reset workspace
               </button>
             </div>
           </div>
@@ -2060,15 +2062,15 @@ export default function App() {
           }}>
             <ChevronRight size={12} color="#5cb85c" />
             <span style={{ fontSize:10, fontWeight:900, color:"#5cb85c", textTransform:"uppercase", letterSpacing:".12em" }}>
-              Bishopton Businesses
+              Bishopton operational units
             </span>
             {uiSnap.cafBoosts > 0 ? (
               <span style={{ fontSize:10, color:"#d4a843", fontWeight:700, marginLeft:"auto", textAlign: "right" }}>
-                ☕ ×{1 + uiSnap.cafBoosts} profit · +{uiSnap.cafBoosts * 8}% speed · milestones at 10/25/50…
+                ☕ ×{1 + uiSnap.cafBoosts} yield · +{uiSnap.cafBoosts * 8}% cycle latency · tier thresholds at 10/25/50…
               </span>
             ) : (
               <span style={{ fontSize:9, color:"#4a5a46", fontWeight:600, marginLeft:"auto", textAlign: "right" }}>
-                Level milestones 10 → 500 spike speed & profit
+                Reference-tier thresholds 10 → 500 adjust latency and yield
               </span>
             )}
           </div>
@@ -2158,6 +2160,7 @@ export default function App() {
 
       <Toast msg={toast} />
       <FloatLabels labels={floats} />
+      </main>
     </>
   );
 }
