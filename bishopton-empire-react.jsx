@@ -270,8 +270,9 @@ function shopTargetLevel(businesses, targetId) {
 }
 
 // ─── NUMBER FORMATTING (AdVenture Capitalist -illion names) ───────────────────
-const STANDARD_ILLIONS = [
-  "", "Million", "Billion", "Trillion", "Quadrillion", "Quintillion",
+const ILLION_WORD_MIN = 1_000;
+const CORE_ILLIONS = [
+  "Thousand", "Million", "Billion", "Trillion", "Quadrillion", "Quintillion",
   "Sextillion", "Septillion", "Octillion", "Nonillion", "Decillion",
 ];
 const ILLION_ONES = ["", "Un", "Duo", "Tre", "Quattuor", "Quin", "Sex", "Septen", "Octo", "Novem"];
@@ -279,8 +280,7 @@ const ILLION_TENS = ["", "Dec", "Vigint", "Trigint", "Quadragint", "Quinquagint"
 const ILLION_HUNDREDS = ["", "Cent", "Ducent", "Trecent", "Quadringent", "Quingent", "Sescent", "Septingent", "Octingent", "Nongent"];
 
 function illionName(tier) {
-  if (tier <= 0) return "";
-  if (tier <= 10) return STANDARD_ILLIONS[tier];
+  if (tier >= 0 && tier <= 10) return CORE_ILLIONS[tier];
   let name = "";
   const h = Math.floor(tier / 100);
   const rem = tier % 100;
@@ -293,23 +293,46 @@ function illionName(tier) {
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
+/** log10-based so values far beyond Number.MAX_SAFE_INTEGER still format correctly */
+function illionParts(abs) {
+  if (abs < ILLION_WORD_MIN) return null;
+  const log10 = Math.log10(abs);
+  let tier = Math.floor(log10 / 3) - 1;
+  if (tier < 0) tier = 0;
+  let mantissa = 10 ** (log10 - (tier + 1) * 3);
+  if (mantissa >= 999.995 && tier < 9999) {
+    tier += 1;
+    mantissa = 10 ** (log10 - (tier + 1) * 3);
+  }
+  return { mantissa, tier };
+}
+
+function fmtCount(n) {
+  if (!Number.isFinite(n)) return "0";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  if (abs < ILLION_WORD_MIN) {
+    return sign + (Number.isInteger(n) ? String(Math.round(abs)) : abs.toFixed(2));
+  }
+  const parts = illionParts(abs);
+  return `${sign}${parts.mantissa.toFixed(2)} ${illionName(parts.tier)}`;
+}
+
+function fmtMult(n) {
+  if (!Number.isFinite(n)) return "×1";
+  if (Math.abs(n) < ILLION_WORD_MIN) return `×${n.toFixed(2)}`;
+  return `×${fmtCount(n)}`;
+}
+
 function fmtMoney(n) {
   if (!Number.isFinite(n)) return "£0.00";
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
-  if (abs < 1e6) {
-    return (sign === "-" ? "-" : "") + abs.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
+  if (abs < ILLION_WORD_MIN) {
+    return sign + abs.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
   }
-  let tier = Math.floor(Math.log10(abs) / 3) - 1;
-  if (tier < 1) tier = 1;
-  let divisor = 10 ** ((tier + 1) * 3);
-  let mantissa = abs / divisor;
-  if (mantissa >= 999.995 && tier < 9999) {
-    tier += 1;
-    divisor = 10 ** ((tier + 1) * 3);
-    mantissa = abs / divisor;
-  }
-  return `${sign}£${mantissa.toFixed(2)} ${illionName(tier)}`;
+  const parts = illionParts(abs);
+  return `${sign}£${parts.mantissa.toFixed(2)} ${illionName(parts.tier)}`;
 }
 
 const fmt = fmtMoney;
@@ -361,11 +384,41 @@ function sumUpgradeCostN(def, startLevel, n) {
 }
 
 // ─── SAVE / OFFLINE (Tier 1) ─────────────────────────────────────────────────
+// Bump SAVE_SCHEMA_VERSION to force a fresh start for all players (update modal + wipe).
+const SAVE_SCHEMA_VERSION = 10;
+const SCHEMA_VERSION_KEY = "bishoptonEmpire_schemaVersion";
 const SAVE_KEY_V5 = "bishoptonEmpire_v5";
 const SAVE_KEY_V6 = "bishoptonEmpire_v6";
 const SAVE_KEY_V7 = "bishoptonEmpire_v7";
 const SAVE_KEY_V8 = "bishoptonEmpire_v8";
 const SAVE_KEY_V9 = "bishoptonEmpire_v9";
+const SAVE_KEY_V10 = "bishoptonEmpire_v10";
+const ALL_SAVE_KEYS = [SAVE_KEY_V5, SAVE_KEY_V6, SAVE_KEY_V7, SAVE_KEY_V8, SAVE_KEY_V9, SAVE_KEY_V10];
+
+function hasStoredSave() {
+  return ALL_SAVE_KEYS.some((k) => localStorage.getItem(k) != null);
+}
+
+function getStoredSchemaVersion() {
+  const v = localStorage.getItem(SCHEMA_VERSION_KEY);
+  return v ? Number(v) : 0;
+}
+
+function clearAllGameSaves() {
+  ALL_SAVE_KEYS.forEach((k) => localStorage.removeItem(k));
+  localStorage.removeItem(SCHEMA_VERSION_KEY);
+}
+
+let _saveBlockedForReset = false;
+
+function acknowledgeGameReset() {
+  clearAllGameSaves();
+  _saveBlockedForReset = false;
+  const game = makeDefaultGame();
+  localStorage.setItem(SCHEMA_VERSION_KEY, String(SAVE_SCHEMA_VERSION));
+  saveGame(game);
+  return game;
+}
 const MAX_OFFLINE_MS = BALANCE.offlineCapHours * 60 * 60 * 1000;
 const MIN_OFFLINE_SIM_MS = 2000;
 const MAX_OFFLINE_CYCLES_PER_BUSINESS = 12_000_000;
@@ -453,7 +506,7 @@ function computePoundsPerSecond(g) {
 
 function fmtPerSec(pps) {
   if (!pps || pps < 0.005) return "£0.00/s";
-  if (pps < 1e6) return `£${pps.toFixed(2)}/s`;
+  if (pps < ILLION_WORD_MIN) return `£${pps.toFixed(2)}/s`;
   return `${fmtMoney(pps)}/s`;
 }
 
@@ -529,13 +582,27 @@ function gameFromStoragePayload(p, now) {
   };
 }
 
-/** @returns {{ game: object, offline: { awayMs: number, extraEarned: number } }} */
+/** @returns {{ game: object, offline: { awayMs: number, extraEarned: number }, requiresResetAck?: boolean }} */
 function loadGame() {
   const now = Date.now();
+
+  if (hasStoredSave() && getStoredSchemaVersion() < SAVE_SCHEMA_VERSION) {
+    _saveBlockedForReset = true;
+    return {
+      game: makeDefaultGame(),
+      offline: { awayMs: 0, extraEarned: 0 },
+      requiresResetAck: true,
+    };
+  }
+
   let game;
   let migratedFromOlder = false;
 
   try {
+    const raw10 = localStorage.getItem(SAVE_KEY_V10);
+    if (raw10) {
+      game = gameFromStoragePayload(JSON.parse(raw10), now);
+    } else {
     const raw9 = localStorage.getItem(SAVE_KEY_V9);
     if (raw9) {
       game = gameFromStoragePayload(JSON.parse(raw9), now);
@@ -587,6 +654,7 @@ function loadGame() {
         }
       }
     }
+    }
   } catch {
     game = makeDefaultGame();
   }
@@ -594,15 +662,17 @@ function loadGame() {
   const offline = applyOfflineDelta(game, now);
   if (migratedFromOlder) saveGame(game);
 
-  return { game, offline };
+  return { game, offline, requiresResetAck: false };
 }
 
 function saveGame(g) {
+  if (_saveBlockedForReset) return;
   try {
     const t = Date.now();
     g.lastSavedAt = t;
-    localStorage.setItem(SAVE_KEY_V9, JSON.stringify({
-      saveVersion: 9,
+    localStorage.setItem(SCHEMA_VERSION_KEY, String(SAVE_SCHEMA_VERSION));
+    localStorage.setItem(SAVE_KEY_V10, JSON.stringify({
+      saveVersion: SAVE_SCHEMA_VERSION,
       lastSavedAt: t,
       bulkBuy: g.bulkBuy ?? 1,
       lastCupPlayedAt: typeof g.lastCupPlayedAt === "number" ? g.lastCupPlayedAt : 0,
@@ -630,6 +700,73 @@ function saveGame(g) {
 }
 
 let _floatId = 0;
+
+// ─── UPDATE RESET MODAL ──────────────────────────────────────────────────────
+
+function UpdateResetModal({ onConfirm }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 300,
+      background: "rgba(0,0,0,.9)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16,
+      backdropFilter: "blur(6px)",
+    }}>
+      <div style={{
+        background: "linear-gradient(145deg,#0e1c0c,#1a2c14)",
+        border: "2px solid #3a6030",
+        borderRadius: 18, padding: "24px 20px",
+        maxWidth: 400, width: "100%",
+        boxShadow: "0 20px 60px rgba(0,0,0,.8), 0 0 40px rgba(92,184,92,.1)",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: "50%",
+            background: "linear-gradient(135deg,#1a3a28,#2e6040)",
+            border: "3px solid #5cb85c",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 12px",
+            boxShadow: "0 0 24px rgba(92,184,92,.3)",
+          }}>
+            <Activity size={28} color="#8fdd9f" />
+          </div>
+          <div style={{ fontWeight: 900, fontSize: 20, color: "#e8dcc8" }}>
+            Game update
+          </div>
+          <div style={{ fontSize: 12, color: "#6a8a64", marginTop: 8, lineHeight: 1.55 }}>
+            We&apos;ve released a major update — rebalanced economy, new number formatting, and more.
+            Your saved progress will be cleared so everyone starts fresh on the new version.
+          </div>
+        </div>
+
+        <div style={{
+          background: "rgba(200,140,60,.08)", border: "1px solid #5a4020",
+          borderRadius: 10, padding: "12px 14px", marginBottom: 20,
+          display: "flex", gap: 10, alignItems: "flex-start",
+        }}>
+          <AlertTriangle size={16} color="#d4a843" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11, color: "#a89870", lineHeight: 1.5 }}>
+            This only happens after big updates. Press OK to wipe local saves and begin a new run.
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onConfirm}
+          style={{
+            width: "100%", padding: "12px 0", borderRadius: 10,
+            border: "2px solid #5cb85c",
+            background: "linear-gradient(135deg,#2a5028,#3a6c34)",
+            color: "#e8fcc8", fontWeight: 800, fontSize: 14,
+            cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          OK — start fresh
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── REBIRTH MODAL ───────────────────────────────────────────────────────────
 
@@ -744,7 +881,7 @@ function RebirthModal({ game, onConfirm, onCancel }) {
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "#4a7a40", lineHeight: 1.5 }}>
             Each boost stacks forever (global multiplier):<br />
-            • <strong style={{ color: "#8fdd9f" }}>×{cafBoostYieldMult(newTotal).toFixed(2)} profit</strong> on every business<br />
+            • <strong style={{ color: "#8fdd9f" }}>{fmtMult(cafBoostYieldMult(newTotal))} profit</strong> on every business<br />
             • <strong style={{ color: "#8fdd9f" }}>+{cafBoostSpeedPct(newTotal)}% speed</strong> on every run<br />
             <span style={{ color: "#5a7050", fontSize: 10 }}>
               Tip: retain automated supervisors so revenue accrues offline; tier thresholds (10, 25, 50…) on each unit yield large per-unit throughput adjustments.
@@ -1090,7 +1227,7 @@ function CupMinigame({ lastCupPlayedAt, superboost, onSessionEnd }) {
           padding: "4px 6px", borderRadius: 8,
           background: "rgba(80,60,10,.35)", border: "1px solid #8a7020", maxWidth: "100%",
         }}>
-          ☕ ×{sb.multiplier} BOOST — {fmtRemainShort(sbLeft)} remaining
+          ☕ {fmtMult(sb.multiplier)} BOOST — {fmtRemainShort(sbLeft)} remaining
         </div>
       )}
     </div>
@@ -1191,7 +1328,7 @@ function ShopPanel({ isOpen, onClose, purchasedUpgrades, balance, businesses, on
                       }}>
                         <Lock size={20} color="#a89880" />
                         <span style={{ fontSize: 10, fontWeight: 800, color: "#c8b8a0" }}>
-                          Requires Lv {u.requiresLevel}
+                          Requires Lv {fmtCount(u.requiresLevel)}
                         </span>
                       </div>
                     ) : (
@@ -1291,7 +1428,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
               background: `${color}28`, border: `1px solid ${color}70`,
               borderRadius: 999, padding: "1px 6px",
               fontSize: 9, fontWeight: 700, color, fontFamily: "monospace",
-            }}>REF {bsSnap.level}</span>
+            }}>REF {fmtCount(bsSnap.level)}</span>
             {mc > 0 && (
               <span style={{
                 background: "rgba(143,221,159,.12)", border: "1px solid #3a6040",
@@ -1370,12 +1507,12 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
             display: "flex", flexWrap: "wrap", gap: "4px 8px", alignItems: "center",
           }}>
             <span>
-              Tier bands: <strong style={{ color: "#7aab80" }}>×{mProf.toFixed(2)}</strong> profit ·{" "}
-              <strong style={{ color: "#7aab80" }}>×{mSpd.toFixed(2)}</strong> speed (this unit)
+              Tier bands: <strong style={{ color: "#7aab80" }}>{fmtMult(mProf)}</strong> profit ·{" "}
+              <strong style={{ color: "#7aab80" }}>{fmtMult(mSpd)}</strong> speed (this unit)
             </span>
             {nextLv != null ? (
               <span style={{ color: "#6a6048" }}>
-                Next threshold at <strong style={{ color: "#d4a843" }}>REF {nextLv}</strong>
+                Next threshold at <strong style={{ color: "#d4a843" }}>REF {fmtCount(nextLv)}</strong>
               </span>
             ) : (
               <span style={{ color: "#5cb85c", fontWeight: 700 }}>All tier thresholds applied</span>
@@ -1404,7 +1541,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
               <span style={{ fontSize: 8, fontWeight: 800, color: "#8fdd9f", textTransform: "uppercase", letterSpacing: ".05em" }}>Increment</span>
             </div>
             <span style={{ fontSize: 9, fontFamily: "monospace", color: canUpg ? "#c0e0b8" : "#3a4e36", fontWeight: 600 }}>
-              {nBuy > 1 ? `${fmt(totalCost)} · ×${nBuy}` : fmt(totalCost)}
+              {nBuy > 1 ? `${fmt(totalCost)} · ×${fmtCount(nBuy)}` : fmt(totalCost)}
             </span>
           </button>
 
@@ -1490,6 +1627,8 @@ export default function App() {
   const [floats,       setFloats]       = useState([]);
   const [showRebirth,  setShowRebirth]  = useState(false);
   const [showShop, setShowShop] = useState(false);
+  const [showUpdateReset, setShowUpdateReset] = useState(() => !!il.requiresResetAck);
+  const resetPendingRef = useRef(!!il.requiresResetAck);
 
   const toastTimer  = useRef(null);
   const rafRef      = useRef(null);
@@ -1616,6 +1755,10 @@ export default function App() {
   // ── GAME LOOP ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const loop = () => {
+      if (resetPendingRef.current) {
+        rafRef.current = requestAnimationFrame(loop);
+        return;
+      }
       const now = Date.now();
       const g = gameRef.current;
       let uiChanged = false;
@@ -1763,9 +1906,9 @@ export default function App() {
     if (newM > prevM) {
       showToast(`Threshold event: ${def.shortName} — large profit and latency adjustment on this unit`);
     } else if (n > 1) {
-      showToast(`⬆ ${def.shortName} +${n} indices → REF ${bs.level}`);
+      showToast(`⬆ ${def.shortName} +${fmtCount(n)} indices → REF ${fmtCount(bs.level)}`);
     } else {
-      showToast(`⬆ ${def.shortName} → REF ${bs.level}! Cycle ${(getDur(def, bs, g.cafBoosts, pu) / 1000).toFixed(1)}s`);
+      showToast(`⬆ ${def.shortName} → REF ${fmtCount(bs.level)}! Cycle ${(getDur(def, bs, g.cafBoosts, pu) / 1000).toFixed(1)}s`);
     }
     scheduleUI();
   }, [showToast, scheduleUI]);
@@ -1834,8 +1977,24 @@ export default function App() {
 
     saveGame(g);
     setShowRebirth(false);
-    showToast(`☕ Workspace reset complete. Caffeine index now ${g.cafBoosts}. Global throughput ×${cafBoostYieldMult(g.cafBoosts).toFixed(2)} yield.`);
+    showToast(`☕ Workspace reset complete. Caffeine index now ${fmtCount(g.cafBoosts)}. Global throughput ${fmtMult(cafBoostYieldMult(g.cafBoosts))} yield.`);
     scheduleUI();
+  }, [paintBar, paintTimer, paintBtn, showToast, scheduleUI]);
+
+  const handleAcknowledgeUpdate = useCallback(() => {
+    const g = acknowledgeGameReset();
+    gameRef.current = g;
+    offlineBootRef.current = { awayMs: 0, extraEarned: 0 };
+    resetPendingRef.current = false;
+    const pu = g.purchasedUpgrades ?? [];
+    BUSINESSES.forEach((_, i) => {
+      paintBar(i, 0, false);
+      paintTimer(i, getDur(BUSINESSES[i], g.businesses[i], g.cafBoosts, pu), false);
+      paintBtn(i, g.businesses[i]);
+    });
+    setShowUpdateReset(false);
+    scheduleUI();
+    showToast("Fresh start — good luck building the empire!");
   }, [paintBar, paintTimer, paintBtn, showToast, scheduleUI]);
 
   // ── DERIVED ───────────────────────────────────────────────────────────────
@@ -1969,7 +2128,7 @@ export default function App() {
                     fontFamily: "'DM Mono',monospace",
                     animation: "superSbPulse 1.4s ease-in-out infinite",
                   }}>
-                    ☕ SUPERBOOST ×{uiSnap.superboost.multiplier} — {fmtRemainShort(superRemMs)}
+                    ☕ SUPERBOOST {fmtMult(uiSnap.superboost.multiplier)} — {fmtRemainShort(superRemMs)}
                   </div>
                 )}
               </div>
@@ -2144,7 +2303,7 @@ export default function App() {
             </span>
             {uiSnap.cafBoosts > 0 ? (
               <span style={{ fontSize:10, color:"#d4a843", fontWeight:700, marginLeft:"auto", textAlign: "right" }}>
-                ☕ ×{cafBoostYieldMult(uiSnap.cafBoosts).toFixed(2)} yield · +{cafBoostSpeedPct(uiSnap.cafBoosts)}% cycle speed · tier thresholds at 10/25/50…
+                ☕ {fmtMult(cafBoostYieldMult(uiSnap.cafBoosts))} yield · +{cafBoostSpeedPct(uiSnap.cafBoosts)}% cycle speed · tier thresholds at 10/25/50…
               </span>
             ) : (
               <span style={{ fontSize:9, color:"#4a5a46", fontWeight:600, marginLeft:"auto", textAlign: "right" }}>
@@ -2227,6 +2386,10 @@ export default function App() {
         businesses={bizSnaps}
         onBuy={handleBuyUpgrade}
       />
+
+      {showUpdateReset && (
+        <UpdateResetModal onConfirm={handleAcknowledgeUpdate} />
+      )}
 
       {showRebirth && (
         <RebirthModal
