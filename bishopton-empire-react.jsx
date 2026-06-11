@@ -74,6 +74,48 @@ const BUSINESSES = [
   },
 ];
 
+// ─── ECONOMY BALANCE ─────────────────────────────────────────────────────────
+// Tuned for steady pacing: first manager ~2 min, first rebirth ~30–45 min active play,
+// milestones feel rewarding, shop items land when unlocked, offline helps but doesn't carry you.
+const BALANCE = {
+  incomeScale: 0.66,
+  upgradeCostScale: 1.58,
+  managerCostScale: 1.82,
+  shopCostScale: 2.25,
+  levelCostGrowth: 1.138,
+  levelSpeedPerLevel: 0.082,
+  milestoneProfitBoost: 1.42,
+  milestoneSpeedBoost: 1.12,
+  cafBoostProfitEach: 0.62,
+  cafBoostSpeedEach: 0.052,
+  offlineCapHours: 24,
+  offlineEarningsRatio: 0.58,
+  rebirthBaseLifetime: 110000,
+  rebirthScale: 3.15,
+};
+
+function cafBoostYieldMult(cafBoosts) {
+  return 1 + cafBoosts * BALANCE.cafBoostProfitEach;
+}
+
+function cafBoostSpeedPct(cafBoosts) {
+  return Math.round(cafBoosts * BALANCE.cafBoostSpeedEach * 100);
+}
+
+function getManagerCost(def) {
+  return Math.ceil(def.managerCost * BALANCE.managerCostScale);
+}
+
+function getShopUpgradeCost(upg) {
+  return Math.ceil(upg.cost * BALANCE.shopCostScale);
+}
+
+/** Softens stacked shop multipliers so late purchases help without breaking the curve. */
+function compressShopMult(raw) {
+  if (raw <= 1) return 1;
+  return Math.pow(raw, 0.62);
+}
+
 const WORLD2_UNLOCK_CAFFEINE = 3;
 const CUP_COOLDOWN_MS = 30 * 60 * 1000;
 const CUP_GAME_MS = 30000;
@@ -91,20 +133,16 @@ function getSuperboostMult(g) {
 }
 
 function tierFromAvgCupFill(avgPct) {
-  if (avgPct >= 80) return { mult: 10, durMs: 300000 };
-  if (avgPct >= 60) return { mult: 5, durMs: 300000 };
-  if (avgPct >= 40) return { mult: 3, durMs: 240000 };
-  if (avgPct >= 20) return { mult: 2, durMs: 180000 };
-  return { mult: 1.5, durMs: 120000 };
+  if (avgPct >= 80) return { mult: 8, durMs: 300000 };
+  if (avgPct >= 60) return { mult: 4, durMs: 270000 };
+  if (avgPct >= 40) return { mult: 2.5, durMs: 210000 };
+  if (avgPct >= 20) return { mult: 1.75, durMs: 180000 };
+  return { mult: 1.3, durMs: 120000 };
 }
 
 // ─── REBIRTH CONFIG ───────────────────────────────────────────────────────────
-// First rebirth needs £25k lifetime (tuned so milestones land first). Each subsequent one needs 3× more.
-const REBIRTH_BASE    = 25000;
-const REBIRTH_SCALE   = 3;
-
 function rebirthThreshold(rebirthCount) {
-  return REBIRTH_BASE * Math.pow(REBIRTH_SCALE, rebirthCount);
+  return BALANCE.rebirthBaseLifetime * Math.pow(BALANCE.rebirthScale, rebirthCount);
 }
 
 // How many boosts earned by rebirthing now
@@ -125,7 +163,7 @@ function milestoneCount(level) {
 function milestoneProfitMult(level) {
   let m = 1;
   LEVEL_MILESTONES.forEach((t) => {
-    if (level >= t) m *= 1.55;
+    if (level >= t) m *= BALANCE.milestoneProfitBoost;
   });
   return m;
 }
@@ -133,7 +171,7 @@ function milestoneProfitMult(level) {
 function milestoneSpeedMult(level) {
   let m = 1;
   LEVEL_MILESTONES.forEach((t) => {
-    if (level >= t) m *= 1.18;
+    if (level >= t) m *= BALANCE.milestoneSpeedBoost;
   });
   return m;
 }
@@ -214,12 +252,14 @@ const SHOP_SECTIONS = [
 ];
 
 function upgradeMultiplier(purchasedUpgrades, businessId, type) {
-  return UPGRADES.reduce((mult, u) => {
+  const raw = UPGRADES.reduce((mult, u) => {
     if (!purchasedUpgrades.includes(u.id)) return mult;
     if (u.type !== type) return mult;
     if (u.target !== null && u.target !== businessId) return mult;
     return mult * u.multiplier;
   }, 1);
+  if (type === "profit" || type === "global_profit") return compressShopMult(raw);
+  return raw;
 }
 
 function shopTargetLevel(businesses, targetId) {
@@ -229,29 +269,71 @@ function shopTargetLevel(businesses, targetId) {
   return businesses[i]?.level ?? 1;
 }
 
-const fmt        = (n) => n.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
-// cafBoost multiplies profit: each boost = +100% profit (global “angel” analogue); superboost stacks multiplicatively
+// ─── NUMBER FORMATTING (AdVenture Capitalist -illion names) ───────────────────
+const STANDARD_ILLIONS = [
+  "", "Million", "Billion", "Trillion", "Quadrillion", "Quintillion",
+  "Sextillion", "Septillion", "Octillion", "Nonillion", "Decillion",
+];
+const ILLION_ONES = ["", "Un", "Duo", "Tre", "Quattuor", "Quin", "Sex", "Septen", "Octo", "Novem"];
+const ILLION_TENS = ["", "Dec", "Vigint", "Trigint", "Quadragint", "Quinquagint", "Sexagint", "Septuagint", "Octogint", "Nonagint"];
+const ILLION_HUNDREDS = ["", "Cent", "Ducent", "Trecent", "Quadringent", "Quingent", "Sescent", "Septingent", "Octingent", "Nongent"];
+
+function illionName(tier) {
+  if (tier <= 0) return "";
+  if (tier <= 10) return STANDARD_ILLIONS[tier];
+  let name = "";
+  const h = Math.floor(tier / 100);
+  const rem = tier % 100;
+  const t = Math.floor(rem / 10);
+  const o = rem % 10;
+  if (h > 0) name += ILLION_HUNDREDS[h];
+  if (o > 0) name += ILLION_ONES[o];
+  if (t > 0) name += ILLION_TENS[t];
+  const raw = `${name}illion`;
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+function fmtMoney(n) {
+  if (!Number.isFinite(n)) return "£0.00";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  if (abs < 1e6) {
+    return (sign === "-" ? "-" : "") + abs.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
+  }
+  let tier = Math.floor(Math.log10(abs) / 3) - 1;
+  if (tier < 1) tier = 1;
+  let divisor = 10 ** ((tier + 1) * 3);
+  let mantissa = abs / divisor;
+  if (mantissa >= 999.995 && tier < 9999) {
+    tier += 1;
+    divisor = 10 ** ((tier + 1) * 3);
+    mantissa = abs / divisor;
+  }
+  return `${sign}£${mantissa.toFixed(2)} ${illionName(tier)}`;
+}
+
+const fmt = fmtMoney;
+// cafBoost multiplies profit: each boost adds +62% profit (global “angel” analogue); superboost stacks multiplicatively
 const getProfit  = (def, bs, cafBoosts, superboostMult = 1, purchasedUpgrades = []) => {
   const profMult =
     upgradeMultiplier(purchasedUpgrades, def.id, "profit") *
     upgradeMultiplier(purchasedUpgrades, def.id, "global_profit");
-  return def.baseProfit * bs.level * (1 + cafBoosts) * milestoneProfitMult(bs.level) * superboostMult * profMult;
+  return def.baseProfit * bs.level * cafBoostYieldMult(cafBoosts) * milestoneProfitMult(bs.level) * superboostMult * profMult * BALANCE.incomeScale;
 };
-// Each level reduces duration by 12%. Caffeine boosts add speed. Milestones add more.
+// Each level trims cycle time. Caffeine boosts and milestones add more speed.
 const getDur     = (def, bs, cafBoosts, purchasedUpgrades = []) => {
-  const levelSpeedup  = 1 + (bs.level - 1) * 0.12;
-  const boostSpeedup  = 1 + cafBoosts * 0.08;
+  const levelSpeedup  = 1 + (bs.level - 1) * BALANCE.levelSpeedPerLevel;
+  const boostSpeedup  = 1 + cafBoosts * BALANCE.cafBoostSpeedEach;
   const upgSpeed =
     upgradeMultiplier(purchasedUpgrades, def.id, "speed") *
     upgradeMultiplier(purchasedUpgrades, def.id, "global_speed");
   return def.baseDuration / (levelSpeedup * boostSpeedup * milestoneSpeedMult(bs.level) * upgSpeed);
 };
-const UPGRADE_COST_MULT = 1.32;
 
-const getUpgCost = (def, bs) => def.upgradeCostBase * Math.pow(UPGRADE_COST_MULT, bs.level);
+const getUpgCost = (def, bs) => def.upgradeCostBase * Math.pow(BALANCE.levelCostGrowth, bs.level) * BALANCE.upgradeCostScale;
 
 function singleUpgradeCost(def, level) {
-  return def.upgradeCostBase * Math.pow(UPGRADE_COST_MULT, level);
+  return def.upgradeCostBase * Math.pow(BALANCE.levelCostGrowth, level) * BALANCE.upgradeCostScale;
 }
 
 /** How many upgrades can be bought from startLevel with balance (sequential costs). */
@@ -284,7 +366,7 @@ const SAVE_KEY_V6 = "bishoptonEmpire_v6";
 const SAVE_KEY_V7 = "bishoptonEmpire_v7";
 const SAVE_KEY_V8 = "bishoptonEmpire_v8";
 const SAVE_KEY_V9 = "bishoptonEmpire_v9";
-const MAX_OFFLINE_MS = 48 * 60 * 60 * 1000;
+const MAX_OFFLINE_MS = BALANCE.offlineCapHours * 60 * 60 * 1000;
 const MIN_OFFLINE_SIM_MS = 2000;
 const MAX_OFFLINE_CYCLES_PER_BUSINESS = 12_000_000;
 
@@ -325,7 +407,7 @@ function applyOfflineDelta(game, nowMs) {
       if (nComplete > MAX_OFFLINE_CYCLES_PER_BUSINESS) nComplete = MAX_OFFLINE_CYCLES_PER_BUSINESS;
 
       if (nComplete > 0) {
-        const gain = profit * nComplete;
+        const gain = profit * nComplete * BALANCE.offlineEarningsRatio;
         game.balance += gain;
         game.lifetime += gain;
         extraEarned += gain;
@@ -351,12 +433,7 @@ function fmtRemainShort(ms) {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
-const fmtShort   = (n) => {
-  if (n >= 1e9) return `£${(n / 1e9).toFixed(1)}bn`;
-  if (n >= 1e6) return `£${(n / 1e6).toFixed(1)}m`;
-  if (n >= 1e3) return `£${(n / 1e3).toFixed(1)}k`;
-  return fmt(n);
-};
+const fmtShort = fmtMoney;
 
 /** Automated income only (managers running), £ per second */
 function computePoundsPerSecond(g) {
@@ -376,11 +453,8 @@ function computePoundsPerSecond(g) {
 
 function fmtPerSec(pps) {
   if (!pps || pps < 0.005) return "£0.00/s";
-  if (pps < 1000) return `£${pps.toFixed(2)}/s`;
-  if (pps >= 1e9) return `${(pps / 1e9).toFixed(2)}bn/s`;
-  if (pps >= 1e6) return `${(pps / 1e6).toFixed(2)}m/s`;
-  if (pps >= 1e3) return `${(pps / 1e3).toFixed(2)}k/s`;
-  return `${fmt(pps)}/s`;
+  if (pps < 1e6) return `£${pps.toFixed(2)}/s`;
+  return `${fmtMoney(pps)}/s`;
 }
 
 // ─── PERSISTENT GAME STATE ───────────────────────────────────────────────────
@@ -670,8 +744,8 @@ function RebirthModal({ game, onConfirm, onCancel }) {
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "#4a7a40", lineHeight: 1.5 }}>
             Each boost stacks forever (global multiplier):<br />
-            • <strong style={{ color: "#8fdd9f" }}>×{(1 + newTotal).toFixed(0)} profit</strong> on every business<br />
-            • <strong style={{ color: "#8fdd9f" }}>+{(newTotal * 8).toFixed(0)}% speed</strong> on every run<br />
+            • <strong style={{ color: "#8fdd9f" }}>×{cafBoostYieldMult(newTotal).toFixed(2)} profit</strong> on every business<br />
+            • <strong style={{ color: "#8fdd9f" }}>+{cafBoostSpeedPct(newTotal)}% speed</strong> on every run<br />
             <span style={{ color: "#5a7050", fontSize: 10 }}>
               Tip: retain automated supervisors so revenue accrues offline; tier thresholds (10, 25, 50…) on each unit yield large per-unit throughput adjustments.
             </span>
@@ -1068,7 +1142,8 @@ function ShopPanel({ isOpen, onClose, purchasedUpgrades, balance, businesses, on
                 const owned = pu.includes(u.id);
                 const tLevel = shopTargetLevel(businesses, u.target);
                 const lockedReq = u.requiresLevel != null && tLevel < u.requiresLevel;
-                const canAfford = balance >= u.cost;
+                const shopCost = getShopUpgradeCost(u);
+                const canAfford = balance >= shopCost;
                 return (
                   <div
                     key={u.id}
@@ -1097,7 +1172,7 @@ function ShopPanel({ isOpen, onClose, purchasedUpgrades, balance, businesses, on
                           {u.description}
                         </div>
                         <div style={{ fontSize: 10, fontFamily: "monospace", color: "#8fdd9f", marginTop: 5, fontWeight: 600 }}>
-                          {fmt(u.cost)}
+                          {fmt(shopCost)}
                         </div>
                       </div>
                     </div>
@@ -1155,7 +1230,8 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
   const nBuy   = bulkBuy === "max" ? maxN : Math.min(bulkBuy, maxN);
   const totalCost = nBuy > 0 ? sumUpgradeCostN(def, bsSnap.level, nBuy) : getUpgCost(def, bsSnap);
   const canUpg = nBuy > 0 && balance >= totalCost;
-  const canHire = balance >= def.managerCost;
+  const managerCost = getManagerCost(def);
+  const canHire = balance >= managerCost;
   const dur     = getDur(def, bsSnap, cafBoosts, purchasedUpgrades);
   const profit  = getProfit(def, bsSnap, cafBoosts, superboostMult, purchasedUpgrades);
   const mc      = milestoneCount(bsSnap.level);
@@ -1361,7 +1437,7 @@ function BusinessRow({ def, bsSnap, balance, cafBoosts, superboostMult = 1, purc
                 <span style={{ fontSize: 8, fontWeight: 800, color: "#d4a843", textTransform: "uppercase" }}>Manager</span>
               </div>
               <span style={{ fontSize: 9, fontFamily: "monospace", color: canHire ? "#b8942a" : "#3a2e10", fontWeight: 600 }}>
-                {fmt(def.managerCost)}
+                {fmt(managerCost)}
               </span>
             </button>
           )}
@@ -1707,8 +1783,9 @@ export default function App() {
     const bs  = g.businesses[i];
     const def = BUSINESSES[i];
     if (bs.hasManager) return;
-    if (g.balance < def.managerCost) { showToast(`Not enough to hire ${def.managerName}.`); return; }
-    g.balance    -= def.managerCost;
+    const managerCost = getManagerCost(def);
+    if (g.balance < managerCost) { showToast(`Not enough to hire ${def.managerName}.`); return; }
+    g.balance    -= managerCost;
     bs.hasManager = true;
     bs.running    = true;
     bs.runStartedAt = Date.now();
@@ -1721,8 +1798,9 @@ export default function App() {
     const g = gameRef.current;
     const upg = UPGRADES.find((u) => u.id === upgradeId);
     if (!upg || (g.purchasedUpgrades ?? []).includes(upgradeId)) return;
-    if (g.balance < upg.cost) return;
-    g.balance -= upg.cost;
+    const shopCost = getShopUpgradeCost(upg);
+    if (g.balance < shopCost) return;
+    g.balance -= shopCost;
     g.purchasedUpgrades = [...(g.purchasedUpgrades ?? []), upgradeId];
     showToast(`✓ ${upg.name} purchased!`);
     saveGame(g);
@@ -1756,7 +1834,7 @@ export default function App() {
 
     saveGame(g);
     setShowRebirth(false);
-    showToast(`☕ Workspace reset complete. Caffeine index now ${g.cafBoosts}. Global throughput ×${1 + g.cafBoosts} with higher yield.`);
+    showToast(`☕ Workspace reset complete. Caffeine index now ${g.cafBoosts}. Global throughput ×${cafBoostYieldMult(g.cafBoosts).toFixed(2)} yield.`);
     scheduleUI();
   }, [paintBar, paintTimer, paintBtn, showToast, scheduleUI]);
 
@@ -2066,7 +2144,7 @@ export default function App() {
             </span>
             {uiSnap.cafBoosts > 0 ? (
               <span style={{ fontSize:10, color:"#d4a843", fontWeight:700, marginLeft:"auto", textAlign: "right" }}>
-                ☕ ×{1 + uiSnap.cafBoosts} yield · +{uiSnap.cafBoosts * 8}% cycle latency · tier thresholds at 10/25/50…
+                ☕ ×{cafBoostYieldMult(uiSnap.cafBoosts).toFixed(2)} yield · +{cafBoostSpeedPct(uiSnap.cafBoosts)}% cycle speed · tier thresholds at 10/25/50…
               </span>
             ) : (
               <span style={{ fontSize:9, color:"#4a5a46", fontWeight:600, marginLeft:"auto", textAlign: "right" }}>
